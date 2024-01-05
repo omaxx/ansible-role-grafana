@@ -1,0 +1,58 @@
+- name: Install dependent packages
+  ansible.builtin.apt:
+    name: "{{ package }}"
+    update_cache: true
+    cache_valid_time: 86400
+  loop:
+    - apt-transport-https
+    - software-properties-common
+    - gnupg2
+  loop_control:
+    loop_var: package
+
+- name: Import Grafana GPG signing key
+  ansible.builtin.apt_key:
+    url: https://apt.grafana.com/gpg.key
+    keyring: /usr/share/keyrings/grafana.key
+
+- name: Add Grafana repository
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/usr/share/keyrings/grafana.key] https://apt.grafana.com stable main"
+    update_cache: true
+
+- name: Install latest version of Grafana
+  ansible.builtin.apt:
+    name: "grafana"
+    update_cache: true
+    cache_valid_time: 86400
+    allow_downgrade: "{{ grafana_allow_downgrade }}"
+    state: latest
+  when: grafana_version == 'latest'
+  notify: Restart Grafana
+  register: grafana_install
+
+- name: Install specific version of Grafana
+  ansible.builtin.apt:
+    name: "grafana={{ grafana_version }}"
+    update_cache: true
+    cache_valid_time: 86400
+    allow_downgrade: "{{ grafana_allow_downgrade }}"
+  when: grafana_version != 'latest'
+  notify: Restart Grafana
+  register: grafana_install
+
+- name: Install Grafana plugins
+  ansible.builtin.command: "grafana-cli plugins install {{ plugin }}"
+  loop:
+    - grafana-opensearch-datasource
+  loop_control:
+    loop_var: plugin
+  when: grafana_install is changed # noqa: no-handler
+  notify: Restart Grafana
+  changed_when: true
+
+- name: Start and enable Grafana
+  ansible.builtin.service:
+    name: grafana-server
+    state: started
+    enabled: true
